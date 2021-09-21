@@ -1109,5 +1109,5 @@ def mjdtoday():
 
 def to_safe_filename(unsafe_string):
     import string
-    valid_filename_characters = "-_.(){letters}{numbers}".format(letters=string.ascii_letters, numbers=string.digits)
+    valid_filename_characters = "-_(){letters}{numbers}".format(letters=string.ascii_letters, numbers=string.digits)
     return ''.join(character for character in unsafe_string if character in valid_filename_characters)
