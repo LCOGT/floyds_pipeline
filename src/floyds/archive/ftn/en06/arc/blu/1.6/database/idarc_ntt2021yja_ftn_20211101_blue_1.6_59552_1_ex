@@ -1,0 +1,30 @@
+# Sat 01:04:17 04-Dec-2021
+begin	identify arc_ntt2021yja_ftn_20211101_blue_1.6_59552_1_ex - Ap 1
+	id	arc_ntt2021yja_ftn_20211101_blue_1.6_59552_1_ex
+	task	identify
+	image	arc_ntt2021yja_ftn_20211101_blue_1.6_59552_1_ex - Ap 1
+	aperture	1
+	aplow	53.75
+	aphigh	63.75
+	units	Angstroms
+	features	4
+	        209.60 3650.15888   3650.158   4.0 1 1 Hg
+	        444.70 4046.68395   4046.565   4.0 1 1 Hg
+	        629.38   4358.181   4358.335   4.0 1 1 Hg
+	       1283.10 5460.78417    5460.75   4.0 1 1 Hg
+	function legendre
+	order 2
+	sample *
+	naverage 1
+	niterate 0
+	low_reject 3.
+	high_reject 3.
+	grow 0.
+	coefficients	6
+		2.
+		2.
+		209.6007080078125
+		1283.104370117188
+		4555.47152630867
+		905.3126440522808
+
