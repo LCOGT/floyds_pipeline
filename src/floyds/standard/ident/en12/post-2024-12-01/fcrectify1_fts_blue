@@ -1,0 +1,40 @@
+# Wed 19:23:04 18-Dec-2024
+# begin	identify utarc_EG21_fts_20241213_blue_2.0_60662_1[*,48]
+#	id	utarc_EG21_fts_20241213_blue_2.0_60662_1
+#	task	identify
+#	image	utarc_EG21_fts_20241213_blue_2.0_60662_1[*,48]
+#	units	Angstroms
+#	features	4
+#	        183.50 3650.20145   3650.158   4.0 1 1 Hg
+#	        416.21 4046.43783   4046.565   4.0 1 1 Hg
+#	        598.25 4358.42681   4358.335   4.0 1 1 Hg
+#	       1233.39 5460.74192    5460.75   4.0 1 1 Hg
+# from astropy.io import ascii
+# d = ascii.read("""        183.50 3650.20145   3650.158   4.0 1 1 Hg
+#            416.21 4046.43783   4046.565   4.0 1 1 Hg
+#            598.25 4358.42681   4358.335   4.0 1 1 Hg
+#           1233.39 5460.74192    5460.75   4.0 1 1 Hg"""
+# x = (2 * d['col1'] - (1395 + 1))/(1395 - 1)
+#from numpy.polynomial.legendre import Legendre
+# Legendre.fit(x, d['col2'], 2, domain=(-1, 1))
+# Legendre([4534.4345889 , 1201.59381415,    8.62657387], domain=[-1.,  1.], window=[-1.,  1.])
+
+begin	rectify1_fts_blue
+	task	fitcoords
+	axis	1
+	units	angstroms
+	surface	14
+		2.
+		3.
+		2.
+		1.
+		1.
+		1395.
+		1.
+		96.0
+		4534.4345889  
+		1201.59381415
+		8.62657387
+        0.0
+		0.0
+		0.0

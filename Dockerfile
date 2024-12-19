@@ -41,12 +41,18 @@ RUN wget https://www.python.org/ftp/python/3.9.12/Python-3.9.12.tgz && \
 RUN python3.9 -m pip install ocs_ingester>=3.0.3 kombu && rm -rf ~/.cache/pip
 
 RUN apt-get --allow-releaseinfo-change update && \
-        apt-get install -y autoconf libxml2-dev libxslt-dev tclsh libxmlrpc-c++8-dev && \ 
+        apt-get install -y libxml2-dev libxslt-dev tclsh libxmlrpc-c++8-dev autoconf && \ 
         git clone https://github.com/SAOImageDS9/SAOImageDS9 && \
         cd SAOImageDS9 && \
-        git checkout d4f01a3170775dc7b6cb57de43f6feb7184b47b0 && \
+        git checkout v8.6 && \
         unix/configure && \
-        make -j4 && \
+        cd openssl && \
+        ./config && \
+        make build_crypto && \
+        make build_engines && \
+        make && \
+        cd .. && \
+        make && \
         ln -s /SAOImageDS9/bin/ds9 /usr/bin/ && \
         apt-get autoclean && \
         rm -rf /var/lib/apt/lists/*
