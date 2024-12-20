@@ -1289,7 +1289,6 @@ def floydsspecreduction(files, _interactive, _dobias, _doflat, _listflat, _listb
 
 #                        arcref = floyds.util.searcharc(imgex, '')[0]
                         os.system('cp ' + floyds.__path__[0] + '/standard/ident/FLOYDS_lines.txt .')
-
                         if not arcref:
                             identific = iraf.specred.identify(images=arcfile, section='middle line',
                                                               coordli='FLOYDS_lines.txt', nsum=10, fwidth=_fwidth,
