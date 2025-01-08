@@ -4,19 +4,19 @@ ENV iraf /iraf/iraf/
 ENV IRAFARCH linux64
 ENV TERM xterm
 
-RUN  apt-get update \
-        && apt -y install gcc make flex git wget \
-        && apt -y install libcurl4-openssl-dev libexpat-dev libreadline-dev \
+RUN apt-get --allow-releaseinfo-change update \
+        && apt -y install gcc make flex git gfortran \
+        && apt -y install libcurl4-openssl-dev libexpat-dev libreadline-dev gettext \
         && apt-get autoclean \
         && rm -rf /var/lib/apt/lists/*
 
-RUN  mkdir -p $iraf \
+RUN mkdir -p $iraf \
         && cd /iraf \
         && git clone https://github.com/iraf-community/iraf.git \
         && cd $iraf \
-        && git checkout 567961f \
+        && git checkout ba22d13 \
         && ./install < /dev/null \
-        && make linux64 \
+        && make $IRAFARCH \
         && make sysgen
 
 RUN apt-get update && \
@@ -24,13 +24,8 @@ RUN apt-get update && \
         libreadline-dev libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev \
         xz-utils tk-dev libffi-dev liblzma-dev
 
-RUN wget https://www.python.org/ftp/python/3.6.9/Python-3.6.9.tgz && \
-        tar xvf Python-3.6.9.tgz && cd Python-3.6.9 && \
-        ./configure --enable-optimizations --enable-shared --with-ensurepip=install && \
-        make -j8 && make altinstall
-
 RUN apt-get update \
-        && apt-get -y install libx11-dev libcfitsio-bin wget x11-apps libtk8.6 \
+        && apt-get -y install libx11-dev libcfitsio-bin wget x11-apps libtk8.6 libjpeg-dev \
         openssh-client wcstools libxml2 vim zip \
         && apt-get autoclean \
         && rm -rf /var/lib/apt/lists/*
@@ -38,11 +33,29 @@ RUN apt-get update \
 RUN pip install setuptools==44.1.1
 RUN pip install numpy==1.16.6 astropy==2.0.16 pyraf==2.1.15 matplotlib==2.2.4 xhtml2pdf==0.2.4 pathlib2==2.3.5 requests==2.22.0 pytest==3.6.4 stsci.tools==3.6.0 && rm -rf ~/.cache/pip
 
-RUN python3.6 -m pip install ocs_ingester>=3.0.3 kombu && rm -rf ~/.cache/pip
+RUN wget https://www.python.org/ftp/python/3.9.12/Python-3.9.12.tgz && \
+        tar xvf Python-3.9.12.tgz && cd Python-3.9.12 && \
+        ./configure --enable-optimizations --with-ensurepip=install && \
+        make -j 12 && make altinstall
 
-RUN wget http://ds9.si.edu/download/debian10/ds9.debian10.8.4.1.tar.gz \
-        && tar -xzvf ds9.debian10.8.4.1.tar.gz -C /usr/local/bin \
-        && rm -rf ds9.debian10.8.4.1.tar.gz
+RUN python3.9 -m pip install ocs_ingester>=3.0.3 kombu && rm -rf ~/.cache/pip
+
+RUN apt-get --allow-releaseinfo-change update && \
+        apt-get install -y libxml2-dev libxslt-dev tclsh libxmlrpc-c++8-dev autoconf && \ 
+        git clone https://github.com/SAOImageDS9/SAOImageDS9 && \
+        cd SAOImageDS9 && \
+        git checkout v8.6 && \
+        unix/configure && \
+        cd openssl && \
+        ./config && \
+        make build_crypto && \
+        make build_engines && \
+        make && \
+        cd .. && \
+        make && \
+        ln -s /SAOImageDS9/bin/ds9 /usr/bin/ && \
+        apt-get autoclean && \
+        rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /home/archive/iraf && /usr/sbin/groupadd -g 10000 "domainusers" \
         && /usr/sbin/useradd -g 10000 -d /home/archive -M -N -u 10087 archive \

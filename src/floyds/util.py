@@ -441,6 +441,7 @@ def searcharc(img, listarc):
     import floyds
     import glob, re
     from numpy import argmin, abs
+    import datetime
 
     hdr = floyds.util.readhdr(img)
     JD = readkey3(hdr, 'JD')
@@ -448,10 +449,18 @@ def searcharc(img, listarc):
     camera = readkey3(hdr, 'INSTRUME')
     grism0 = readkey3(hdr, 'grism')
     slit0 = readkey3(hdr, 'slit')
+    date0 = readkey3(hdr, 'date-night')
     #if slit0=='6.0' and _instrume in ['fts','2m0b']: slit0='2.0'
     #if slit0=='6.0' and _instrume in ['ftn','2m0a']: slit0='1.6'
     if not listarc:
-        directory = floyds.__path__[0] + '/archive/' + str(_instrume) + '/' + camera + '/arc/' + grism0 + '/' + slit0
+        if str(_instrume) == 'fts' and camera == 'en12':
+            if datetime.datetime.strptime(str(date0), '%Y%m%d') < datetime.datetime(2024, 12, 1):
+                date_dir = 'pre-2024-12-01/'
+            else:
+                date_dir = 'post-2024-12-01/'
+        else:
+            date_dir = '' 
+        directory = floyds.__path__[0] + '/archive/' + str(_instrume) + '/' + camera + '/arc/' + date_dir + grism0 + '/' + slit0
         listarc = glob.glob(directory + '/*fits')
     else:
         directory = ''

@@ -1,0 +1,27 @@
+# Thu 20:24:29 30-May-2019
+begin	rectify_fts_blue
+    task	fitcoords
+    axis	2
+	surface	22 # 22 values below
+		2. # legendre
+		7. # x order
+		2. # y order
+		1. # cross terms (always 1 for fitcoords)
+		234. # xmin
+		1664. # xmax
+		1. # ymin
+		187. # ymax
+		-29.25296 # c00
+		-15.39926 # c10
+		-54.7236 # c20
+		9.525094 # c30
+		-2.03121 # c40
+		0.3707601 # c50
+		-0.1076537 # c60
+        93. # c01
+        0. # c11
+        0. # c21
+        0. # c31
+        0. # c41
+        0. # c51
+		0. # c61

@@ -1130,16 +1130,20 @@ def floydsspecreduction(files, _interactive, _dobias, _doflat, _listflat, _listb
 
                 ###################################################################
                 if setup[0] == 'red':
-                    fcfile = floyds.__path__[0] + '/standard/ident/' + camera + '/fcrectify_' + _tel + '_red'
-                    fcfile1 = floyds.__path__[0] + '/standard/ident/' + camera + '/fcrectify1_' + _tel + '_red'
-                    fcfile_untilt = floyds.__path__[0] + '/standard/ident/' + camera + '/fcuntilt_' + _tel + '_red'
-                    print fcfile
+                    arm_str = '_red'
                 else:
-                    fcfile = floyds.__path__[0] + '/standard/ident/' + camera + '/fcrectify_' + _tel + '_blue'
-                    fcfile1 = floyds.__path__[0] + '/standard/ident/' + camera + '/fcrectify1_' + _tel + '_blue'
-                    fcfile_untilt = floyds.__path__[0] + '/standard/ident/' + camera + '/fcuntilt_' + _tel + '_blue'
-
-                    print fcfile
+                    arm_str = '_blue'
+                if _tel == 'fts' and camera == 'en12':
+                    if datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2024, 12, 1):
+                        date_dir = '/pre-2024-12-01'
+                    else:
+                        date_dir = '/post-2024-12-01'
+                else:
+                    date_dir = ''
+                fcfile = floyds.__path__[0] + '/standard/ident/' + camera + date_dir + '/fcrectify_' + _tel + arm_str
+                fcfile1 = floyds.__path__[0] + '/standard/ident/' + camera + date_dir + '/fcrectify1_' + _tel + arm_str
+                fcfile_untilt = floyds.__path__[0] + '/standard/ident/' + camera + date_dir +'/fcuntilt_' + _tel  + arm_str
+                print fcfile
 
                 if not img:  # or not arcfile:
                     print '\n### no calibration for this setup available'
@@ -1285,7 +1289,6 @@ def floydsspecreduction(files, _interactive, _dobias, _doflat, _listflat, _listb
 
 #                        arcref = floyds.util.searcharc(imgex, '')[0]
                         os.system('cp ' + floyds.__path__[0] + '/standard/ident/FLOYDS_lines.txt .')
-
                         if not arcref:
                             identific = iraf.specred.identify(images=arcfile, section='middle line',
                                                               coordli='FLOYDS_lines.txt', nsum=10, fwidth=_fwidth,
@@ -2003,7 +2006,6 @@ def rectify_single_image(img, imgrect, imgrect1, fcuntilt_file, xa, xb, ya, yb, 
     iraf.specred.transform(input=img, output=first_rectified_image, minput='', fitnames=re.sub('.fits', '', imgrect),
                            databas='database', x1='INDEF', x2='INDEF', dx=1, y1='INDEF', y2=y2, dy=1,
                            flux='yes', blank=0, logfile='logfile')
-
     data, hdr = fits.getdata(first_rectified_image, 0, header=True)
 
     if not hdr.get('HDRVER'):
@@ -2113,7 +2115,12 @@ def rectifyspectrum(img, arcfile, flatfile, fcfile, fcfile1, fcfile_untilt, _int
                 ya, yb = 186, 285
             elif camera == 'en12':
                 xa, xb = 0, 1792
-                ya, yb = 221, 312
+
+                _date0 = readkey3(hdr, 'date-night')
+                if datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2024, 12, 1):
+                    ya, yb = 221, 312
+                else:
+                    ya, yb = 212, 306
                 y2 = 'INDEF'
             else:
                 raise ValueError('Camera not supported by pipeline')
@@ -2131,8 +2138,13 @@ def rectifyspectrum(img, arcfile, flatfile, fcfile, fcfile1, fcfile_untilt, _int
                 xa, xb = 0, 1669
                 ya, yb = 125, 226
             elif camera == 'en12':
-                xa, xb = 206, 1587
-                ya, yb = 182, 273
+                _date0 = readkey3(hdr, 'date-night')
+                if datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2024, 12, 1):
+                    xa, xb = 206, 1587
+                    ya, yb = 182, 273
+                else:
+                    xa, xb = 0, 1316
+                    ya, yb = 103, 199
                 y2 = 100
             else:
                 raise ValueError('Camera not supported by pipeline')
