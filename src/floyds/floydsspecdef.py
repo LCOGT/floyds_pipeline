@@ -1134,10 +1134,12 @@ def floydsspecreduction(files, _interactive, _dobias, _doflat, _listflat, _listb
                 else:
                     arm_str = '_blue'
                 if _tel == 'fts' and camera == 'en12':
-                    if datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2024, 12, 1):
-                        date_dir = '/pre-2024-12-01'
-                    else:
+                    in_era = datetime.datetime.strptime(str(_date0), '%Y%m%d') > datetime.datetime(2024, 12, 1)
+                    in_era = in_era and datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2025, 1, 15)
+                    if in_era:
                         date_dir = '/post-2024-12-01'
+                    else:
+                        date_dir = '/pre-2024-12-01'
                 else:
                     date_dir = ''
                 fcfile = floyds.__path__[0] + '/standard/ident/' + camera + date_dir + '/fcrectify_' + _tel + arm_str
