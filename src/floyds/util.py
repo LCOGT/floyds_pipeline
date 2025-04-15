@@ -454,8 +454,8 @@ def searcharc(img, listarc):
     #if slit0=='6.0' and _instrume in ['ftn','2m0a']: slit0='1.6'
     if not listarc:
         if str(_instrume) == 'fts' and camera == 'en12':
-            in_era = datetime.datetime.strptime(str(_date0), '%Y%m%d') > datetime.datetime(2024, 12, 1)
-            in_era = in_era and datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2025, 1, 15)
+            in_era = datetime.datetime.strptime(str(date0), '%Y%m%d') > datetime.datetime(2024, 12, 1)
+            in_era = in_era and datetime.datetime.strptime(str(date0), '%Y%m%d') < datetime.datetime(2025, 1, 15)
             if in_era:
                 date_dir = 'post-2024-12-01/'
             else:
