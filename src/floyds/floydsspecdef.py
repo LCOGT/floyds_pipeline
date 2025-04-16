@@ -2121,8 +2121,10 @@ def rectifyspectrum(img, arcfile, flatfile, fcfile, fcfile1, fcfile_untilt, _int
                 _date0 = readkey3(hdr, 'date-night')
                 if datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2024, 12, 1):
                     ya, yb = 221, 312
-                else:
+                elif datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2025, 1, 15):
                     ya, yb = 212, 306
+                else:
+                    ya, yb = 223, 314
                 y2 = 'INDEF'
             else:
                 raise ValueError('Camera not supported by pipeline')
@@ -2144,9 +2146,12 @@ def rectifyspectrum(img, arcfile, flatfile, fcfile, fcfile1, fcfile_untilt, _int
                 if datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2024, 12, 1):
                     xa, xb = 206, 1587
                     ya, yb = 182, 273
-                else:
+                elif datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2025, 1, 15):
                     xa, xb = 0, 1316
                     ya, yb = 103, 199
+                else:
+                    xa, xb = 206, 1587
+                    ya, yb = 187, 274
                 y2 = 100
             else:
                 raise ValueError('Camera not supported by pipeline')
