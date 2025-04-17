@@ -424,16 +424,23 @@ def floydsautoredu(files,_interactive,_dobias,_doflat,_listflat,_listbias,_lista
               else:   print '\n### Warning: no arc found'
 
 ###################################################################   rectify 
-              if setup[0]=='red':
-                  fcfile=floyds.__path__[0]+'/standard/ident/' + camera + '/fcrectify_'+_tel+'_red'
-                  fcfile1=floyds.__path__[0]+'/standard/ident/' + camera + '/fcrectify1_'+_tel+'_red'
-                  fcfile_untilt = floyds.__path__[0] + '/standard/ident/' + camera + '/fcuntilt_' + _tel + '_red'
-                  print fcfile
+              if setup[0] == 'red':
+                  arm_str = '_red'
               else:
-                  fcfile=floyds.__path__[0]+'/standard/ident/' + camera + '/fcrectify_'+_tel+'_blue'
-                  fcfile1=floyds.__path__[0]+'/standard/ident/' + camera +'/fcrectify1_'+_tel+'_blue'
-                  fcfile_untilt = floyds.__path__[0] + '/standard/ident/' + camera + '/fcuntilt_' + _tel + '_blue'
-                  print fcfile
+                  arm_str = '_blue'
+              if _tel == 'fts' and camera == 'en12':
+                  in_era = datetime.datetime.strptime(str(_date0), '%Y%m%d') > datetime.datetime(2024, 12, 1)
+                  in_era = in_era and datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2025, 1, 15)
+                  if in_era:
+                      date_dir = '/post-2024-12-01'
+                  else:
+                      date_dir = '/pre-2024-12-01'
+              else:
+                  date_dir = ''
+              fcfile = floyds.__path__[0] + '/standard/ident/' + camera + date_dir + '/fcrectify_' + _tel + arm_str
+              fcfile1 = floyds.__path__[0] + '/standard/ident/' + camera + date_dir + '/fcrectify1_' + _tel + arm_str
+              fcfile_untilt = floyds.__path__[0] + '/standard/ident/' + camera + date_dir +'/fcuntilt_' + _tel  + arm_str
+              print fcfile
               print img,arcfile,flatfile
               img0=img
               if img      and img not in outputfile[tpe][archfile]: outputfile[tpe][archfile].append(img)
