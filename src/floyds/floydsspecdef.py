@@ -1134,10 +1134,12 @@ def floydsspecreduction(files, _interactive, _dobias, _doflat, _listflat, _listb
                 else:
                     arm_str = '_blue'
                 if _tel == 'fts' and camera == 'en12':
-                    if datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2024, 12, 1):
-                        date_dir = '/pre-2024-12-01'
-                    else:
+                    in_era = datetime.datetime.strptime(str(_date0), '%Y%m%d') > datetime.datetime(2024, 12, 1)
+                    in_era = in_era and datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2025, 1, 15)
+                    if in_era:
                         date_dir = '/post-2024-12-01'
+                    else:
+                        date_dir = '/pre-2024-12-01'
                 else:
                     date_dir = ''
                 fcfile = floyds.__path__[0] + '/standard/ident/' + camera + date_dir + '/fcrectify_' + _tel + arm_str
@@ -2119,8 +2121,10 @@ def rectifyspectrum(img, arcfile, flatfile, fcfile, fcfile1, fcfile_untilt, _int
                 _date0 = readkey3(hdr, 'date-night')
                 if datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2024, 12, 1):
                     ya, yb = 221, 312
-                else:
+                elif datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2025, 1, 15):
                     ya, yb = 212, 306
+                else:
+                    ya, yb = 227, 310
                 y2 = 'INDEF'
             else:
                 raise ValueError('Camera not supported by pipeline')
@@ -2142,9 +2146,12 @@ def rectifyspectrum(img, arcfile, flatfile, fcfile, fcfile1, fcfile_untilt, _int
                 if datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2024, 12, 1):
                     xa, xb = 206, 1587
                     ya, yb = 182, 273
-                else:
+                elif datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2025, 1, 15):
                     xa, xb = 0, 1316
                     ya, yb = 103, 199
+                else:
+                    xa, xb = 206, 1587
+                    ya, yb = 187, 270
                 y2 = 100
             else:
                 raise ValueError('Camera not supported by pipeline')
