@@ -2115,6 +2115,7 @@ def rectifyspectrum(img, arcfile, flatfile, fcfile, fcfile1, fcfile_untilt, _int
             if camera == 'en05':
                 xa, xb = 0, 1800
                 ya, yb = 186, 285
+                y2 = 'INDEF'
             elif camera == 'en12':
                 xa, xb = 0, 1792
 
@@ -2141,6 +2142,7 @@ def rectifyspectrum(img, arcfile, flatfile, fcfile, fcfile1, fcfile_untilt, _int
             if camera == 'en05':
                 xa, xb = 0, 1669
                 ya, yb = 125, 226
+                y2 = 100
             elif camera == 'en12':
                 _date0 = readkey3(hdr, 'date-night')
                 if datetime.datetime.strptime(str(_date0), '%Y%m%d') < datetime.datetime(2024, 12, 1):
