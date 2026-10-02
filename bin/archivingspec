@@ -1,0 +1,534 @@
+#!/usr/bin/env python
+#
+#
+# archiving spectra
+#
+#
+#create table spec (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, filename VARCHAR(50) UNIQUE KEY, directory VARCHAR(100), objname VARCHAR(50), jd DOUBLE, dateobs DATE, exptime FLOAT, filter VARCHAR(20), grism VARCHAR(20), telescope VARCHAR(20), instrument VARCHAR(20), airmass FLOAT, ut TIME, slit VARCHAR(20), status VARCHAR(50), original VARCHAR(50), note VARCHAR(100), ra0 FLOAT, dec0 FLOAT, PROPID VARCHAR(30), observer VARCHAR(30), dateobs2  VARCHAR(23), targid INT default 0);
+#################################################
+from numpy import *
+import string,re,sys,glob,os
+import floyds
+import datetime
+import time
+from astropy.io import fits
+from argparse import ArgumentParser
+import json
+import requests
+try:
+    import MySQLdb as msql
+except ImportError:
+    import pymysql as msql
+
+workdirectory = os.getenv('LCOSNDIR', '/supernova/')
+if not workdirectory.endswith('/'):
+    workdirectory += '/'
+
+
+def readconfig():
+    config = {}
+    for line in open(os.path.join(workdirectory, 'configure')):
+        fields = line.split()
+        if len(fields) >= 2:
+            config[fields[0]] = fields[1].strip('\'"')
+    return config
+
+
+config = readconfig()
+conn = msql.connect(host=config['hostname'], user=config['mysqluser'], passwd=config['mysqlpasswd'], db=config['database'])
+
+
+def execute(sql, values=None):
+    cursor = conn.cursor(msql.cursors.DictCursor)
+    cursor.execute(sql, values)
+    rows = cursor.fetchall()
+    conn.commit()
+    cursor.close()
+    return rows
+
+
+def query(commands):
+    rows = ''
+    for command in commands:
+        rows = execute(command)
+    return rows
+
+
+def getfromdataraw(table, column, value, column2='*'):
+    return execute('select ' + column2 + ' from ' + table + ' where ' + column + '=%s', (value,))
+
+
+def getfromcoordinate(ra0, dec0, distance):
+    return query(['set @sc = pi()/180', 'set @ra = ' + str(ra0), 'set @dec = ' + str(dec0), 'set @distance = ' + str(distance),
+                  'SELECT *,abs(2*asin( sqrt( sin((a.dec0-@dec)*@sc/2)*sin((a.dec0-@dec)*@sc/2) + '
+                  'cos(a.dec0*@sc)*cos(@dec*@sc)*sin((a.ra0-@ra)*@sc/2)*sin((a.ra0-@ra)*@sc/2.0) )))*180/pi() as hsine '
+                  'FROM targets as a HAVING hsine<@distance order by a.ra0 desc'])
+
+
+def gettargetid(_name, _ra, _dec, _radius=.01, verbose=False):
+    lista = ''
+    if _name:
+        lista = execute('select distinct(r.name), r.targetid, t.id, t.ra0, t.dec0 from targetnames as r join targets as t '
+                        'where r.name like %s and t.id=r.targetid', ('%' + _name.replace(' ', '%'),))
+    elif _ra and _dec:
+        if ':' in str(_ra):
+            _ra, _dec = deg2HMS(_ra, _dec)
+        lista = getfromcoordinate(_ra, _dec, _radius)
+        if verbose:
+            print(lista)
+    ids = set(row['id'] for row in lista)
+    if len(ids) == 1:
+        return lista[0]['id']
+    if len(ids) > 1 and 'hsine' in lista[0]:
+        return sorted(lista, key=lambda row: row['hsine'])[0]['id']
+    return ''
+
+
+def insert_values(table, values):
+    values = dict((key, val) for key, val in values.items() if val not in ['NaN', 'UNKNOWN', 'N/A', None, ''])
+    if 'datecreated' not in values and table in ['instruments', 'spec', 'targetnames', 'targets', 'telescopes']:
+        values['datecreated'] = str(datetime.datetime.utcnow())
+    columns = list(values)
+    execute('INSERT INTO ' + table + ' (' + ', '.join(columns) + ') VALUES (' + ', '.join(['%s'] * len(columns)) + ')',
+            [values[column] for column in columns])
+
+
+def updatevalue(column, value, filename):
+    execute('UPDATE spec SET ' + column + '=%s WHERE filename=%s', (value, filename))
+
+
+def deletefromspec(value, column):
+    execute('delete from spec where ' + column + '=%s', (value,))
+
+
+def deg2HMS(ra='', dec=''):
+    RA, DEC = '', ''
+    if dec:
+        if str(dec).count(':') == 2:
+            dec0, dec1, dec2 = [float(part) for part in dec.split(':')]
+            if '-' in str(dec0):
+                DEC = (-1) * ((dec2 / 60. + dec1) / 60. + ((-1) * dec0))
+            else:
+                DEC = (dec2 / 60. + dec1) / 60. + dec0
+        else:
+            dec0 = (-1) * abs(int(dec)) if str(dec)[0] == '-' else abs(int(dec))
+            dec1 = int((abs(dec) - abs(dec0)) * 60)
+            dec2 = (((abs(dec)) - abs(dec0)) * 60 - abs(dec1)) * 60
+            DEC = '00'[len(str(dec0)):] + str(dec0) + ':' + '00'[len(str(dec1)):] + str(dec1) + ':' + '00'[len(str(int(dec2))):] + str(dec2)
+    if ra:
+        if str(ra).count(':') == 2:
+            ra0, ra1, ra2 = [float(part) for part in ra.split(':')]
+            RA = ((ra2 / 60. + ra1) / 60. + ra0) * 15.
+        else:
+            ra0 = int(ra / 15.)
+            ra1 = int(((ra / 15.) - ra0) * 60)
+            ra2 = ((((ra / 15.) - ra0) * 60) - ra1) * 60
+            RA = '00'[len(str(ra0)):] + str(ra0) + ':' + '00'[len(str(ra1)):] + str(ra1) + ':' + '00'[len(str(int(ra2))):] + str(ra2)
+    if ra and dec:
+        return RA, DEC
+    return RA or DEC
+
+#################################################################################
+
+def JDnow(datenow='',verbose=False):
+    _JD0=2455927.5
+    if not datenow:
+        datenow=datetime.datetime(time.gmtime().tm_year, time.gmtime().tm_mon, time.gmtime().tm_mday, time.gmtime().tm_hour, time.gmtime().tm_min, time.gmtime().tm_sec)
+    _JDtoday=_JD0+(datenow-datetime.datetime(2012, 01, 01,00,00,00)).seconds/(3600.*24)+\
+              (datenow-datetime.datetime(2012, 01, 01,00,00,00)).days
+    if verbose: print 'JD= '+str(_JDtoday)
+    return _JDtoday
+
+def MJDnow(datenow='',verbose=False):
+    _JD0=2455927.5
+    if not datenow:
+        datenow=datetime.datetime(time.gmtime().tm_year, time.gmtime().tm_mon, time.gmtime().tm_mday, time.gmtime().tm_hour, time.gmtime().tm_min, time.gmtime().tm_sec)
+    _JDtoday=_JD0+(datenow-datetime.datetime(2012, 01, 01,00,00,00)).seconds/(3600.*24)+\
+              (datenow-datetime.datetime(2012, 01, 01,00,00,00)).days
+    if verbose: print 'JD= '+str(_JDtoday)
+    return _JDtoday-2400000.5
+
+def archivereducedspectrum(img):
+    hdulist = fits.open(img, mode='update')
+    hdr = hdulist[0].header
+    _targid=targimg(img,True)
+    print 'targid '+str(_targid)
+    if 'REDUCER' in hdr:
+        _reducer = hdr.get('REDUCER')
+        print 'reduced by', _reducer
+    else:
+        _reducer = None
+    #    telescope
+    if 'TELESCOP' in hdr:     _telescope=hdr.get('TELESCOP')
+    else:                     _telescope=''
+    #    object
+    if 'object' in hdr: _object=hdr.get('object')
+    elif 'objcat' in hdr: _object=hdr.get('objcat') # TNG format
+    else: _object='spectrum'
+    _object=re.sub('\}','', _object)
+    _object=re.sub('\{','', _object)
+    _object=re.sub('\[','', _object)
+    _object=re.sub('\]','', _object)
+    _object=re.sub('\(','', _object)
+    _object=re.sub('\)','', _object)
+#    _object=re.sub('-','', _object)
+    _object=re.sub(' ','', _object)
+    #    dateobs
+    if 'DATE-OBS' in hdr:  
+        _dateobs=hdr.get('DATE-OBS')
+        if 'T' in _dateobs: _dateobs=string.split(_dateobs,'T')[0]
+    else:     _dateobs=''
+    #   UT
+    if 'UTSTART' in hdr:  _ut=hdr.get('UTSTART')
+    elif 'UT' in hdr: _ut=hdr.get('UT')
+    else:
+        _ut=hdr.get('DATE-OBS')
+        if 'T' in _ut:    _ut=string.split(_ut,'T')[1]
+    # ra and  dec
+    _ra=hdr.get('RA')
+    _dec=hdr.get('DEC')
+    if ':' in str(_ra):      _ra,_dec=deg2HMS(_ra,_dec)
+    # JD
+    if 'JD' in hdr: _mjd=hdr.get('JD')-2400000.5
+    elif 'JD-OBS' in hdr: _mjd=hdr.get('JD-OBS')-2400000.5
+    elif 'MJD' in hdr: _mjd=hdr.get('MJD')
+    elif 'MJD-OBS' in hdr: _mjd=hdr.get('MJD-OBS')
+    elif 'DATE-OBS' in hdr: 
+        dd=''
+        try:
+            dd=datetime.datetime.strptime(hdr.get('DATE-OBS')[0:-6],'%Y-%m-%dT%H:%M:%S')
+        except:
+            try:
+                dd=datetime.datetime.strptime(hdr.get('DATE-OBS')[0:-6],'%Y-%m-%dT%H:%M')
+            except: pass
+        if dd:     _mjd=MJDnow(dd,False)
+        else:      _mjd=None
+    
+
+    if _telescope in ['fts','ftn','2m0a','2m0-01','2m0-02']:
+        dictionary={'dateobs':_dateobs,'exptime':hdr.get('exptime'), 'filter':hdr.get('filter'),'mjd':_mjd,\
+                    'telescope':_telescope,'airmass':hdr.get('airmass'),'objname':_object,'ut':_ut,\
+                    'instrument':hdr.get('instrume'),'ra0':_ra,'dec0':_dec,'slit':hdr.get('APERWID'),\
+                    'targetid':_targid,'grism':re.sub('/','',hdr.get('GRISM')), 'original':hdr.get('arcfile'),'reducer':_reducer,\
+                    'dayobs':hdr.get('DAY-OBS')}
+        if 'TRACKNUM' in hdr:
+            try:
+#                print hdr['TRACKNUM']
+#                dictionary['tracknumber']=int(hdr['TRACKNUM'])
+#                print 'select r.groupidcode from obslog as o join obsrequests as r where o.requestsid=r.id and o.tracknumber='+str(int(hdr['TRACKNUM']))
+                gruppo=query(['select r.groupidcode from obslog as o join obsrequests as r where o.requestsid=r.id and o.tracknumber='+\
+                                               str(int(hdr['TRACKNUM']))])
+                if len(gruppo):
+                    dictionary['groupidcode']=gruppo[0]['groupidcode']
+            except:
+                pass
+
+    elif 'gemini' in _telescope.lower():
+        if 'south' in _telescope.lower(): _telescope='gs'
+        else: _telescope='gn'
+        dictionary={'dateobs':_dateobs,'exptime':hdr.get('exptime'), 'filter':hdr.get('filter'),'mjd':_mjd,\
+                    'telescope':_telescope,'airmass':hdr.get('AIRMASS'),'objname':_object,'ut':_ut,\
+                    'instrument':hdr.get('INSTRUME'),'ra0':_ra,'dec0':_dec,'slit':hdr.get('slit'),\
+                    'targetid':_targid,'grism':hdr.get('GRATING'),'original':hdr.get('arcfile'),'reducer':_reducer}
+
+    elif 'TNG' in _telescope:
+        dictionary={'dateobs':_dateobs,'exptime':hdr.get('exptime'), 'filter':hdr.get('flt_id'),'mjd':_mjd,\
+                    'telescope':_telescope,'airmass':hdr.get('airmass'),'objname':_object,'ut':_ut,\
+                    'instrument':hdr.get('instrume'),'ra0':_ra,'dec0':_dec,'slit':hdr.get('slt_id'),\
+                    'targetid':_targid,'grism':hdr.get('grm_id'),'original':hdr.get('filename'),'reducer':_reducer,\
+                    'observer':hdr.get('observer')}
+
+    else:
+        dictionary={'dateobs':_dateobs,'exptime':hdr.get('exptime'), 'filter':hdr.get('filter'),'mjd':_mjd,\
+                    'telescope':_telescope,'airmass':hdr.get('airmass'),'objname':_object,'ut':_ut,\
+                    'instrument':hdr.get('instrume'),'ra0':_ra,'dec0':_dec,'slit':hdr.get('slit'),\
+                    'targetid':_targid,'grism':hdr.get('GRISM'),'original':hdr.get('arcfile'),'reducer':_reducer,\
+                    'observer':hdr.get('observer')}
+
+    dictionary['filename']=string.split(img,'/')[-1]
+    _dir=re.sub(string.split(img,'/')[-1],'',img)
+    dictionary['filepath']=_dir
+    return dictionary
+
+########################################
+
+def targimg(img,verbose=False):
+    _targetid=''
+    hdrt = fits.getheader(img)
+    try:
+        _ra=hdrt.get('RA')
+        _dec=hdrt.get('DEC')
+        if ':' in str(_ra):         _ra,_dec=deg2HMS(_ra,_dec)
+        if ':' in str(_ra):         _ra,_dec=deg2HMS(_ra,_dec)
+    except:
+        print 'warning: file corrupted'
+        return ''
+    if 'object' in hdrt:
+        _object=hdrt.get('object')
+    elif 'objcat' in hdrt:
+        _object=hdrt.get('objcat')
+    else: _object=''
+    _object=re.sub(' ','',_object)
+    _object=re.sub('\[','',_object)
+    _object=re.sub('\]','',_object)
+
+    if verbose: 
+        print _ra,_dec,_object
+    if _object: _targetid=gettargetid(_object,'','',0.01,verbose)
+    if not _targetid:
+       if verbose:
+           print '\n use coordinate to identify target id '
+           print _ra,_dec
+       _targetid=gettargetid('',_ra,_dec,0.1,verbose)   
+
+    if not _targetid:
+       dictionary={'ra0':_ra,'dec0':_dec}
+       insert_values('targets',dictionary)
+       bb=getfromcoordinate(_ra, _dec,.000156)
+       dictionary1={'name':_object,'targetid':bb[0]['id']}
+       insert_values('targetnames',dictionary1)
+       _targetid=bb[0]['id']
+    if _targetid:
+       cc=getfromdataraw('permissionlog','targetid', str(_targetid),column2='groupname')
+       if len(cc)==0:
+          _JDn=JDnow()
+          dictionary2={'targetid':_targetid,'jd':_JDn,'groupname':32769}
+          insert_values('permissionlog',dictionary2)
+    return _targetid
+
+def uploadspectrum(img, _output, _force, reducer=None):
+    note = '\ninput = '+img+'\n'
+    hdulist = fits.open(img, mode='update')
+    hdr = hdulist[0].header
+    
+    if 'REDUCER' in hdr:
+        if reducer is None:
+            reducer = hdr['REDUCER']
+        elif hdr['REDUCER'] != reducer:
+            print 'Reducer given with -r and reducer in header are different. Which one is correct?'
+            while True:
+                choice = raw_input('(1) {} \t (2) {} '.format(reducer, hdr['REDUCER']))
+                if choice == '1':
+                    break
+                elif choice == '2':
+                    reducer = hdr['REDUCER']
+                    break
+    elif reducer is None:
+        command = ['select distinct reducer from spec']
+        names = query(command)
+        for name in names:
+            if name['reducer']: 
+                print name['reducer']
+        reducer = raw_input('Who reduced this spectrum? (Copy and paste from above if possible.) ')
+    if reducer:
+        hdr['REDUCER'] = (reducer, 'User who reduced the spectrum')
+        hdulist.close()
+
+    dictionary = archivereducedspectrum(img)
+    _tel = re.sub(' ','',dictionary['telescope'])
+
+###################################### # gemini files in jerod format needs some trick
+    if 'gemini' in _tel.lower():      
+        data,hdr0 = fits.getdata(img, 'sci', header=True)
+        try:        hdr0.__delitem__('AIRMASS')
+        except:     hdr0.remove('AIRMASS') 
+        hed=['TELESCOP','OBSERVAT','RA','DEC','UT','ST','EXPTIME','MASKNAME','GRATING','CENTWAVE','OBSMODE','GAIN','RDNOISE','MJD-OBS',\
+                 'PIXSCALE','DATE-OBS','AIRMASS']
+        for jj in hed:
+            hdr0[jj] = hdr[jj]
+        if 'south' in _tel.lower(): _tel='gs'
+        else: _tel='gn'
+        fits.writeto(re.sub('.fits','0.fits',img), float32(data), hdr0)
+        img=re.sub('.fits','0.fits',img)
+############################################# 
+
+    _grism = dictionary['grism']
+    _date = re.sub('-','',dictionary['dateobs'])
+    if 'T' in _date: string.split(_date,'T')[0]
+    _ut = dictionary['ut']
+    _object = dictionary['objname']
+    if not _output:
+        _output=re.sub('/','',str(_object))+'_'+str(_date)+'_'+str(_grism)+'_'+re.sub(':','',str(_ut))+'.fits'
+    
+    if _tel:
+        directory = workdirectory + 'data/WEB/floyds/'+_date+'_'+_tel+'/'
+        note += 'telescope = '+_tel+'\n'
+    else:
+        directory = workdirectory + 'data/WEB/floyds/'+_date+'_other/'
+        note+= 'WARNING: telescope name not in header\n'
+    dictionary['filepath'] = directory
+    dictionary['filename'] = _output
+
+    if not dictionary['objname']: note += 'ERROR: OBJECT not defined '
+    else:                         note += 'objname = '+str(dictionary['objname'])+'\n'
+    if not dictionary['ra0']:     note += 'ERROR: RA not defined \n'
+    else:                         note += 'RA = '+str(dictionary['ra0'])+'\n'
+    if not dictionary['dec0']:    note += 'ERROR: DEC not defined \n'
+    else:                         note += 'DEC = '+str(dictionary['dec0'])+'\n'
+    if not dictionary['targetid']: note+= 'ERROR: TARGID not defined \n'
+    else:                         note += 'targid = '+str(dictionary['targetid'])+'\n'
+    if not dictionary['dateobs']: note += 'ERROR: DATE-OBS not defined \n'
+    else:                         note += 'dateobs = '+str(dictionary['dateobs'])+'\n'
+
+    if 'ERROR' in note: 
+        return note
+
+    if os.path.isdir(directory): print directory, 'already exists'
+    else:
+      os.system('mkdir ' + directory)
+      print 'creating', directory
+
+    cont = False
+    adding = False
+    while not cont:
+        file_exists = os.path.isfile(directory+_output)
+        db_original_exists = getfromdataraw('spec', 'original', hdr['origname'], column2='id, filename, filepath') if 'origname' in hdr else False
+        if file_exists and _force:
+            replace = 'o'
+            cont = True
+            print 'replacing existing file'
+        elif file_exists: # if -f not given, prompt to choose
+            replace = raw_input('File already exists. What do you want to do? [o]verwrite/[a]dd/[n]othing ')
+            if replace=='o':
+                _force = True
+                cont = True
+                print 'replacing existing file'
+            elif replace=='a':
+                _output = re.sub('.fits','a.fits',_output)
+                dictionary['filename'] = _output
+                print 'changing output to',_output
+                adding = True
+            elif replace=='n':
+                cont = True
+                print 'file not changed'
+        elif db_original_exists and not adding:
+            print 'Another spectrum from this original already exists.'
+            fullpath = db_original_exists[0]['filepath'] + db_original_exists[0]['filename']
+            print fullpath
+            if _force:
+                print 'Deleting that file and database entry.'
+            else:
+                delete = raw_input('Do you want to delete this file and database entry before archiving? [y/[n]] ')
+            if _force or delete == 'y':
+                os.system('rm -v ' + fullpath + ' ' + fullpath.replace('.fits', '.ascii'))
+                deletefromspec(str(db_original_exists[0]['id']), 'id')
+            else:
+                cont = True
+                adding = True
+                print 'other file not changed'
+        else: # file doesn't exist
+            _force = True
+            cont = True
+            print 'adding file'
+    if _force or adding:
+        os.system('cp '+img+' '+directory+_output)
+        xx,yy=floyds.readspectrum(img)
+        data=zip(xx,yy)
+        savetxt(re.sub('.fits','.ascii',directory+_output),data)
+        note += 'output = '+_output+'\n'
+
+    filename = os.path.basename(_output)
+    dbentry_exists = getfromdataraw('spec','filename',filename,column2='filename')
+    if dbentry_exists and not _force: # if -f not given and 'n' chosen above, prompt to choose
+        update = raw_input('Spectum already in database. Update entry? [[y]/n] ')
+        if update=='n':
+            print 'database not changed'
+            return note
+
+    if _tel:            # telescope is in the header
+        _telid = getfromdataraw('telescopes','name', _tel,column2='id')
+        if not _telid:  # telescope is not yet in the telescopes table
+            print 'Telescope ',_tel,' not recognized.  Adding to telescopes table.'
+            shortname = raw_input('What is the short name of this telescope (e.g., FTN, COJ, LSC)? ')
+            insert_values('telescopes',{'name':_tel,'shortname':shortname})
+            _telid = getfromdataraw('telescopes','name',_tel,column2='id')
+        dictionary['telescopeid'] = str(_telid[0]['id'])
+
+    _inst = dictionary['instrument']
+    if _inst:
+        _instid = getfromdataraw('instruments','name', _inst,column2='id')
+        if not _instid:  # instrument is not yet in the instruments table
+            print 'Instrument ',_inst,' not recognized.  Adding to instruments table.'
+            insert_values('instruments',{'name':_inst})
+            _instid = getfromdataraw('instruments','name',_inst,column2='id')
+        dictionary['instrumentid']=str(_instid[0]['id'])
+
+    newdict = dict()
+    for voce in dictionary:
+        if dictionary[voce]: # get rid of empty string entries
+            newdict[voce] = dictionary[voce]
+
+    if dbentry_exists and not _force:
+            print 'updating database'
+            for voce in newdict: updatevalue(voce,newdict[voce],filename)
+    else:
+        if dbentry_exists:
+            print 'replacing database entry'
+            deletefromspec(filename,'filename')
+        else: print 'adding to database'
+        insert_values('spec',newdict)
+    note += post_to_snex(directory + _output, dictionary, adding, hdr.get('PROPID'))
+    return note
+
+
+def post_to_snex(filepath, dictionary, adding=False, propid=None):
+    note = ''
+    url = os.environ.get('SNEX_URL', '').rstrip('/')
+    token = os.environ.get('SNEX_API_TOKEN', '')
+    if not url or not token:
+        return 'ERROR: SNEX_URL and SNEX_API_TOKEN must be set, not posted to SNEx\n'
+    headers = {'Accept': 'application/json', 'Authorization': 'Token ' + token}
+    try:
+        groupidcode = int(dictionary.get('groupidcode') or 1703768065789)
+        if propid == 'FLOYDS standards' or execute(
+                'select targets.id from targets join classifications on classifications.id=targets.classificationid '
+                'where targets.id=%s and classifications.name="Standard"', (dictionary['targetid'],)):
+            return 'standard star, not posted to SNEx\n'
+
+        groups = [g['name'] for g in query(['select name, idcode from `groups`'])
+                  if g['idcode'] and int(g['idcode']) & groupidcode]
+        if not groups:
+            return 'ERROR: no SNEx groups found for this spectrum, not posted to SNEx\n'
+
+        target_params = {'name': dictionary['objname'], 'type': 'SIDEREAL', 'permissions': 'PRIVATE',
+                         'ra': float(dictionary['ra0']), 'dec': float(dictionary['dec0']),
+                         'groups': [{'name': g} for g in groups],
+                         'comment': 'Target created via the pipeline'}
+        response = requests.post(url + '/api/targets/', headers=headers, json=target_params)
+        response.raise_for_status()
+        target_id = response.json()['id']
+        note += 'SNEx target id = ' + str(target_id) + '\n'
+
+        params = {'target': target_id, 'data_product_type': 'spectroscopy',
+                  'groups': json.dumps([{'name': g} for g in groups])}
+        if adding:
+            params['product_id'] = os.path.splitext(os.path.basename(filepath))[0]
+        elif dictionary.get('original'):
+            params['product_id'] = re.sub(r'\.fits$', '', dictionary['original'])
+        if dictionary.get('reducer'):
+            params['reducer'] = dictionary['reducer']
+        with open(filepath, 'rb') as f:
+            response = requests.post(url + '/api/dataproducts/', headers=headers, data=params,
+                                     files={'file': (os.path.basename(filepath), f, 'image/fits')})
+        response.raise_for_status()
+        dp = response.json()
+        note += 'SNEx data product = ' + str(dp['id']) + (' (replaced existing)' if dp['replaced'] else '') + '\n'
+        note += 'SNEx groups = ' + ', '.join(dp['groups']) + '\n'
+    except Exception as e:
+        detail = getattr(getattr(e, 'response', None), 'text', '')
+        note += 'WARNING: SNEx upload failed: ' + str(e) + ' ' + detail[:300] + '\n'
+    return note
+
+if __name__ == "__main__":
+    parser = ArgumentParser(description="archive a reduced spectrum")
+    parser.add_argument("filenames", nargs='+', help="spectra to archive")
+    parser.add_argument("-o", "--output", default='', help='output filename')
+    parser.add_argument("-f", "--force", action="store_true", help="overwrite existing file & db entry")
+    parser.add_argument("-r", "--reducer", help="name of reducer")
+    args = parser.parse_args()
+
+    for img in args.filenames:
+        note = uploadspectrum(img, args.output, args.force, args.reducer)
+        print note
+###################
+
