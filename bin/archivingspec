@@ -501,10 +501,10 @@ def post_to_snex(filepath, dictionary, adding=False, propid=None):
 
         params = {'target': target_id, 'data_product_type': 'spectroscopy',
                   'groups': json.dumps([{'name': g} for g in groups])}
-        if adding:
-            params['product_id'] = os.path.splitext(os.path.basename(filepath))[0]
-        elif dictionary.get('original'):
+        if dictionary.get('original'):
             params['product_id'] = re.sub(r'\.fits$', '', dictionary['original'])
+        elif adding:
+            params['product_id'] = os.path.splitext(os.path.basename(filepath))[0]
         if dictionary.get('reducer'):
             params['reducer'] = dictionary['reducer']
         with open(filepath, 'rb') as f:
@@ -512,8 +512,11 @@ def post_to_snex(filepath, dictionary, adding=False, propid=None):
                                      files={'file': (os.path.basename(filepath), f, 'image/fits')})
         response.raise_for_status()
         dp = response.json()
-        note += 'SNEx data product = ' + str(dp['id']) + (' (replaced existing)' if dp['replaced'] else '') + '\n'
-        note += 'SNEx groups = ' + ', '.join(dp['groups']) + '\n'
+        if dp.get('unchanged'):
+            note += 'SNEx data product = ' + str(dp['id']) + ' (this version was already posted)\n'
+        else:
+            note += 'SNEx data product = ' + str(dp['id']) + ' (version ' + str(dp['versions']) + ')\n'
+            note += 'SNEx groups = ' + ', '.join(dp['groups']) + '\n'
     except Exception as e:
         detail = getattr(getattr(e, 'response', None), 'text', '')
         note += 'WARNING: SNEx upload failed: ' + str(e) + ' ' + detail[:300] + '\n'
