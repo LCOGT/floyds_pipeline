@@ -11,122 +11,13 @@ import string,re,sys,glob,os
 import floyds
 import datetime
 import time
+import lsc
 from astropy.io import fits
+from lsc import conn
 from argparse import ArgumentParser
-import json
-import requests
-try:
-    import MySQLdb as msql
-except ImportError:
-    import pymysql as msql
 
-workdirectory = os.getenv('LCOSNDIR', '/supernova/')
-if not workdirectory.endswith('/'):
-    workdirectory += '/'
-
-
-def readconfig():
-    config = {}
-    for line in open(os.path.join(workdirectory, 'configure')):
-        fields = line.split()
-        if len(fields) >= 2:
-            config[fields[0]] = fields[1].strip('\'"')
-    return config
-
-
-config = readconfig()
-conn = msql.connect(host=config['hostname'], user=config['mysqluser'], passwd=config['mysqlpasswd'], db=config['database'])
-
-
-def execute(sql, values=None):
-    cursor = conn.cursor(msql.cursors.DictCursor)
-    cursor.execute(sql, values)
-    rows = cursor.fetchall()
-    conn.commit()
-    cursor.close()
-    return rows
-
-
-def query(commands):
-    rows = ''
-    for command in commands:
-        rows = execute(command)
-    return rows
-
-
-def getfromdataraw(table, column, value, column2='*'):
-    return execute('select ' + column2 + ' from ' + table + ' where ' + column + '=%s', (value,))
-
-
-def getfromcoordinate(ra0, dec0, distance):
-    return query(['set @sc = pi()/180', 'set @ra = ' + str(ra0), 'set @dec = ' + str(dec0), 'set @distance = ' + str(distance),
-                  'SELECT *,abs(2*asin( sqrt( sin((a.dec0-@dec)*@sc/2)*sin((a.dec0-@dec)*@sc/2) + '
-                  'cos(a.dec0*@sc)*cos(@dec*@sc)*sin((a.ra0-@ra)*@sc/2)*sin((a.ra0-@ra)*@sc/2.0) )))*180/pi() as hsine '
-                  'FROM targets as a HAVING hsine<@distance order by a.ra0 desc'])
-
-
-def gettargetid(_name, _ra, _dec, _radius=.01, verbose=False):
-    lista = ''
-    if _name:
-        lista = execute('select distinct(r.name), r.targetid, t.id, t.ra0, t.dec0 from targetnames as r join targets as t '
-                        'where r.name like %s and t.id=r.targetid', ('%' + _name.replace(' ', '%'),))
-    elif _ra and _dec:
-        if ':' in str(_ra):
-            _ra, _dec = deg2HMS(_ra, _dec)
-        lista = getfromcoordinate(_ra, _dec, _radius)
-        if verbose:
-            print(lista)
-    ids = set(row['id'] for row in lista)
-    if len(ids) == 1:
-        return lista[0]['id']
-    if len(ids) > 1 and 'hsine' in lista[0]:
-        return sorted(lista, key=lambda row: row['hsine'])[0]['id']
-    return ''
-
-
-def insert_values(table, values):
-    values = dict((key, val) for key, val in values.items() if val not in ['NaN', 'UNKNOWN', 'N/A', None, ''])
-    if 'datecreated' not in values and table in ['instruments', 'spec', 'targetnames', 'targets', 'telescopes']:
-        values['datecreated'] = str(datetime.datetime.utcnow())
-    columns = list(values)
-    execute('INSERT INTO ' + table + ' (' + ', '.join(columns) + ') VALUES (' + ', '.join(['%s'] * len(columns)) + ')',
-            [values[column] for column in columns])
-
-
-def updatevalue(column, value, filename):
-    execute('UPDATE spec SET ' + column + '=%s WHERE filename=%s', (value, filename))
-
-
-def deletefromspec(value, column):
-    execute('delete from spec where ' + column + '=%s', (value,))
-
-
-def deg2HMS(ra='', dec=''):
-    RA, DEC = '', ''
-    if dec:
-        if str(dec).count(':') == 2:
-            dec0, dec1, dec2 = [float(part) for part in dec.split(':')]
-            if '-' in str(dec0):
-                DEC = (-1) * ((dec2 / 60. + dec1) / 60. + ((-1) * dec0))
-            else:
-                DEC = (dec2 / 60. + dec1) / 60. + dec0
-        else:
-            dec0 = (-1) * abs(int(dec)) if str(dec)[0] == '-' else abs(int(dec))
-            dec1 = int((abs(dec) - abs(dec0)) * 60)
-            dec2 = (((abs(dec)) - abs(dec0)) * 60 - abs(dec1)) * 60
-            DEC = '00'[len(str(dec0)):] + str(dec0) + ':' + '00'[len(str(dec1)):] + str(dec1) + ':' + '00'[len(str(int(dec2))):] + str(dec2)
-    if ra:
-        if str(ra).count(':') == 2:
-            ra0, ra1, ra2 = [float(part) for part in ra.split(':')]
-            RA = ((ra2 / 60. + ra1) / 60. + ra0) * 15.
-        else:
-            ra0 = int(ra / 15.)
-            ra1 = int(((ra / 15.) - ra0) * 60)
-            ra2 = ((((ra / 15.) - ra0) * 60) - ra1) * 60
-            RA = '00'[len(str(ra0)):] + str(ra0) + ':' + '00'[len(str(ra1)):] + str(ra1) + ':' + '00'[len(str(int(ra2))):] + str(ra2)
-    if ra and dec:
-        return RA, DEC
-    return RA or DEC
+#hostname, username, passwd, database=lsc.mysqldef.getconnection('lcogt2')
+#conn = lsc.mysqldef.dbConnect(hostname, username, passwd, database)
 
 #################################################################################
 
@@ -187,7 +78,7 @@ def archivereducedspectrum(img):
     # ra and  dec
     _ra=hdr.get('RA')
     _dec=hdr.get('DEC')
-    if ':' in str(_ra):      _ra,_dec=deg2HMS(_ra,_dec)
+    if ':' in str(_ra):      _ra,_dec=lsc.deg2HMS(_ra,_dec)
     # JD
     if 'JD' in hdr: _mjd=hdr.get('JD')-2400000.5
     elif 'JD-OBS' in hdr: _mjd=hdr.get('JD-OBS')-2400000.5
@@ -216,8 +107,8 @@ def archivereducedspectrum(img):
 #                print hdr['TRACKNUM']
 #                dictionary['tracknumber']=int(hdr['TRACKNUM'])
 #                print 'select r.groupidcode from obslog as o join obsrequests as r where o.requestsid=r.id and o.tracknumber='+str(int(hdr['TRACKNUM']))
-                gruppo=query(['select r.groupidcode from obslog as o join obsrequests as r where o.requestsid=r.id and o.tracknumber='+\
-                                               str(int(hdr['TRACKNUM']))])
+                gruppo=lsc.mysqldef.query(['select r.groupidcode from obslog as o join obsrequests as r where o.requestsid=r.id and o.tracknumber='+\
+                                               str(int(hdr['TRACKNUM']))],conn)
                 if len(gruppo):
                     dictionary['groupidcode']=gruppo[0]['groupidcode']
             except:
@@ -258,8 +149,8 @@ def targimg(img,verbose=False):
     try:
         _ra=hdrt.get('RA')
         _dec=hdrt.get('DEC')
-        if ':' in str(_ra):         _ra,_dec=deg2HMS(_ra,_dec)
-        if ':' in str(_ra):         _ra,_dec=deg2HMS(_ra,_dec)
+        if ':' in str(_ra):         _ra,_dec=lsc.deg2HMS(_ra,_dec)
+        if ':' in str(_ra):         _ra,_dec=lsc.deg2HMS(_ra,_dec)
     except:
         print 'warning: file corrupted'
         return ''
@@ -274,26 +165,26 @@ def targimg(img,verbose=False):
 
     if verbose: 
         print _ra,_dec,_object
-    if _object: _targetid=gettargetid(_object,'','',0.01,verbose)
+    if _object: _targetid=lsc.mysqldef.gettargetid(_object,'','',conn,0.01,verbose)
     if not _targetid:
        if verbose:
            print '\n use coordinate to identify target id '
            print _ra,_dec
-       _targetid=gettargetid('',_ra,_dec,0.1,verbose)   
+       _targetid=lsc.mysqldef.gettargetid('',_ra,_dec,conn,0.1,verbose)   
 
     if not _targetid:
        dictionary={'ra0':_ra,'dec0':_dec}
-       insert_values('targets',dictionary)
-       bb=getfromcoordinate(_ra, _dec,.000156)
+       lsc.mysqldef.insert_values(conn,'targets',dictionary)
+       bb=lsc.mysqldef.getfromcoordinate(conn, 'targets', _ra, _dec,.000156)
        dictionary1={'name':_object,'targetid':bb[0]['id']}
-       insert_values('targetnames',dictionary1)
+       lsc.mysqldef.insert_values(conn,'targetnames',dictionary1)
        _targetid=bb[0]['id']
     if _targetid:
-       cc=getfromdataraw('permissionlog','targetid', str(_targetid),column2='groupname')
+       cc=lsc.mysqldef.getfromdataraw(conn,'permissionlog','targetid', str(_targetid),column2='groupname')
        if len(cc)==0:
-          _JDn=JDnow()
+          _JDn=lsc.mysqldef.JDnow()
           dictionary2={'targetid':_targetid,'jd':_JDn,'groupname':32769}
-          insert_values('permissionlog',dictionary2)
+          lsc.mysqldef.insert_values(conn,'permissionlog',dictionary2)
     return _targetid
 
 def uploadspectrum(img, _output, _force, reducer=None):
@@ -313,9 +204,13 @@ def uploadspectrum(img, _output, _force, reducer=None):
                 elif choice == '2':
                     reducer = hdr['REDUCER']
                     break
+    elif reducer is None and fullname is not None:
+        reducer = raw_input('Who reduced this spectrum? [{}] '.format(fullname))
+        if not reducer:
+            reducer = fullname
     elif reducer is None:
         command = ['select distinct reducer from spec']
-        names = query(command)
+        names = lsc.mysqldef.query(command,conn)
         for name in names:
             if name['reducer']: 
                 print name['reducer']
@@ -351,10 +246,10 @@ def uploadspectrum(img, _output, _force, reducer=None):
         _output=re.sub('/','',str(_object))+'_'+str(_date)+'_'+str(_grism)+'_'+re.sub(':','',str(_ut))+'.fits'
     
     if _tel:
-        directory = workdirectory + 'data/WEB/floyds/'+_date+'_'+_tel+'/'
+        directory = lsc.util.workdirectory + 'data/WEB/floyds/'+_date+'_'+_tel+'/'
         note += 'telescope = '+_tel+'\n'
     else:
-        directory = workdirectory + 'data/WEB/floyds/'+_date+'_other/'
+        directory = lsc.util.workdirectory + 'data/WEB/floyds/'+_date+'_other/'
         note+= 'WARNING: telescope name not in header\n'
     dictionary['filepath'] = directory
     dictionary['filename'] = _output
@@ -382,7 +277,7 @@ def uploadspectrum(img, _output, _force, reducer=None):
     adding = False
     while not cont:
         file_exists = os.path.isfile(directory+_output)
-        db_original_exists = getfromdataraw('spec', 'original', hdr['origname'], column2='id, filename, filepath') if 'origname' in hdr else False
+        db_original_exists = lsc.mysqldef.getfromdataraw(conn, 'spec', 'original', hdr['origname'], column2='id, filename, filepath') if 'origname' in hdr else False
         if file_exists and _force:
             replace = 'o'
             cont = True
@@ -411,7 +306,7 @@ def uploadspectrum(img, _output, _force, reducer=None):
                 delete = raw_input('Do you want to delete this file and database entry before archiving? [y/[n]] ')
             if _force or delete == 'y':
                 os.system('rm -v ' + fullpath + ' ' + fullpath.replace('.fits', '.ascii'))
-                deletefromspec(str(db_original_exists[0]['id']), 'id')
+                lsc.mysqldef.deleteredufromarchive(str(db_original_exists[0]['id']), 'spec', column='id')
             else:
                 cont = True
                 adding = True
@@ -428,7 +323,7 @@ def uploadspectrum(img, _output, _force, reducer=None):
         note += 'output = '+_output+'\n'
 
     filename = os.path.basename(_output)
-    dbentry_exists = getfromdataraw('spec','filename',filename,column2='filename')
+    dbentry_exists = lsc.mysqldef.getfromdataraw(conn,'spec','filename',filename,column2='filename')
     if dbentry_exists and not _force: # if -f not given and 'n' chosen above, prompt to choose
         update = raw_input('Spectum already in database. Update entry? [[y]/n] ')
         if update=='n':
@@ -436,22 +331,25 @@ def uploadspectrum(img, _output, _force, reducer=None):
             return note
 
     if _tel:            # telescope is in the header
-        _telid = getfromdataraw('telescopes','name', _tel,column2='id')
+        _telid = lsc.mysqldef.getfromdataraw(conn,'telescopes','name', _tel,column2='id')
         if not _telid:  # telescope is not yet in the telescopes table
             print 'Telescope ',_tel,' not recognized.  Adding to telescopes table.'
             shortname = raw_input('What is the short name of this telescope (e.g., FTN, COJ, LSC)? ')
-            insert_values('telescopes',{'name':_tel,'shortname':shortname})
-            _telid = getfromdataraw('telescopes','name',_tel,column2='id')
+            lsc.mysqldef.insert_values(conn,'telescopes',{'name':_tel,'shortname':shortname})
+            _telid = lsc.mysqldef.getfromdataraw(conn,'telescopes','name',_tel,column2='id')
         dictionary['telescopeid'] = str(_telid[0]['id'])
 
     _inst = dictionary['instrument']
     if _inst:
-        _instid = getfromdataraw('instruments','name', _inst,column2='id')
+        _instid = lsc.mysqldef.getfromdataraw(conn,'instruments','name', _inst,column2='id')
         if not _instid:  # instrument is not yet in the instruments table
             print 'Instrument ',_inst,' not recognized.  Adding to instruments table.'
-            insert_values('instruments',{'name':_inst})
-            _instid = getfromdataraw('instruments','name',_inst,column2='id')
+            lsc.mysqldef.insert_values(conn,'instruments',{'name':_inst})
+            _instid = lsc.mysqldef.getfromdataraw(conn,'instruments','name',_inst,column2='id')
         dictionary['instrumentid']=str(_instid[0]['id'])
+
+    if snex_uid is not None:
+        dictionary['uploadedby'] = snex_uid
 
     newdict = dict()
     for voce in dictionary:
@@ -460,64 +358,34 @@ def uploadspectrum(img, _output, _force, reducer=None):
 
     if dbentry_exists and not _force:
             print 'updating database'
-            for voce in newdict: updatevalue(voce,newdict[voce],filename)
+            for voce in newdict: lsc.mysqldef.updatevalue('spec',voce,newdict[voce],filename)
+            if snex_uid is not None:
+                update_useractionlog(filename, snex_uid, 'upd')
     else:
         if dbentry_exists:
             print 'replacing database entry'
-            deletefromspec(filename,'filename')
+            if snex_uid is not None:
+                update_useractionlog(filename, snex_uid, 'del')
+            lsc.mysqldef.deleteredufromarchive(filename,'spec',column='filename')
         else: print 'adding to database'
-        insert_values('spec',newdict)
-    note += post_to_snex(directory + _output, dictionary, adding, hdr.get('PROPID'))
+        lsc.mysqldef.insert_values(conn,'spec',newdict)
+        if snex_uid is not None:
+            update_useractionlog(filename, snex_uid)
     return note
 
+######################################
+def update_useractionlog(filename, snex_uid, mode='add'):
+  row_id = lsc.mysqldef.query(["select id from spec where filename='"+filename+"'"], conn)[0]['id']
+  if mode=='add':   vals = {'columnmodified':'New Row', 'prevvalue':'None', 'newvalue':'Multiple'}
+  elif mode=='del': vals = {'columnmodified':'All', 'prevvalue':'Multiple', 'newvalue':'None'}
+  elif mode=='upd': vals = {'columnmodified':'Multiple', 'prevvalue':'Multiple', 'newvalue':'Multiple'}
+  else: sys.exit('Mode not recognized. User action not logged.')
 
-def post_to_snex(filepath, dictionary, adding=False, propid=None):
-    note = ''
-    url = os.environ.get('SNEX_URL', '').rstrip('/')
-    token = os.environ.get('SNEX_API_TOKEN', '')
-    if not url or not token:
-        return 'ERROR: SNEX_URL and SNEX_API_TOKEN must be set, not posted to SNEx\n'
-    headers = {'Accept': 'application/json', 'Authorization': 'Token ' + token}
-    try:
-        groupidcode = int(dictionary.get('groupidcode') or 1703768065789)
-        if propid == 'FLOYDS standards' or execute(
-                'select targets.id from targets join classifications on classifications.id=targets.classificationid '
-                'where targets.id=%s and classifications.name="Standard"', (dictionary['targetid'],)):
-            return 'standard star, not posted to SNEx\n'
-
-        groups = [g['name'] for g in query(['select name, idcode from `groups`'])
-                  if g['idcode'] and int(g['idcode']) & groupidcode]
-        if not groups:
-            return 'ERROR: no SNEx groups found for this spectrum, not posted to SNEx\n'
-
-        target_params = {'name': dictionary['objname'], 'type': 'SIDEREAL', 'permissions': 'PRIVATE',
-                         'ra': float(dictionary['ra0']), 'dec': float(dictionary['dec0']),
-                         'groups': [{'name': g} for g in groups],
-                         'comment': 'Target created via the pipeline'}
-        response = requests.post(url + '/api/targets/', headers=headers, json=target_params)
-        response.raise_for_status()
-        target_id = response.json()['id']
-        note += 'SNEx target id = ' + str(target_id) + '\n'
-
-        params = {'target': target_id, 'data_product_type': 'spectroscopy',
-                  'groups': json.dumps([{'name': g} for g in groups])}
-        if adding:
-            params['product_id'] = os.path.splitext(os.path.basename(filepath))[0]
-        elif dictionary.get('original'):
-            params['product_id'] = re.sub(r'\.fits$', '', dictionary['original'])
-        if dictionary.get('reducer'):
-            params['reducer'] = dictionary['reducer']
-        with open(filepath, 'rb') as f:
-            response = requests.post(url + '/api/dataproducts/', headers=headers, data=params,
-                                     files={'file': (os.path.basename(filepath), f, 'image/fits')})
-        response.raise_for_status()
-        dp = response.json()
-        note += 'SNEx data product = ' + str(dp['id']) + (' (replaced existing)' if dp['replaced'] else '') + '\n'
-        note += 'SNEx groups = ' + ', '.join(dp['groups']) + '\n'
-    except Exception as e:
-        detail = getattr(getattr(e, 'response', None), 'text', '')
-        note += 'WARNING: SNEx upload failed: ' + str(e) + ' ' + detail[:300] + '\n'
-    return note
+  vals['userid'] = snex_uid
+  vals['tablemodified'] = 'spec'
+  vals['idmodified'] = row_id
+  lsc.mysqldef.insert_values(conn, 'useractionlog', vals)
+  print 'useractionlog updated:', vals
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="archive a reduced spectrum")
@@ -527,8 +395,8 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--reducer", help="name of reducer")
     args = parser.parse_args()
 
+    snex_uid, fullname = lsc.mysqldef.get_snex_uid(return_fullname=True)
     for img in args.filenames:
         note = uploadspectrum(img, args.output, args.force, args.reducer)
         print note
 ###################
-
