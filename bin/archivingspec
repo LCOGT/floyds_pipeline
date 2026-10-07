@@ -489,7 +489,7 @@ def post_to_snex(filepath, dictionary, adding=False, propid=None):
                   if g['idcode'] and int(g['idcode']) & groupidcode]
         target_params = {'name': dictionary['objname'], 'type': 'SIDEREAL', 'permissions': 'PRIVATE',
                          'ra': float(dictionary['ra0']), 'dec': float(dictionary['dec0']),
-                         'comment': 'Target created via the pipeline'}
+                         'comment': 'Target created by spectroscopy pipeline'}
         if groups:
             target_params['groups'] = [{'name': g} for g in groups]
         response = requests.post(url + '/api/targets/', headers=headers, json=target_params)
