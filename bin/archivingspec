@@ -487,20 +487,19 @@ def post_to_snex(filepath, dictionary, adding=False, propid=None):
 
         groups = [g['name'] for g in query(['select name, idcode from `groups`'])
                   if g['idcode'] and int(g['idcode']) & groupidcode]
-        if not groups:
-            return 'ERROR: no SNEx groups found for this spectrum, not posted to SNEx\n'
-
         target_params = {'name': dictionary['objname'], 'type': 'SIDEREAL', 'permissions': 'PRIVATE',
                          'ra': float(dictionary['ra0']), 'dec': float(dictionary['dec0']),
-                         'groups': [{'name': g} for g in groups],
                          'comment': 'Target created via the pipeline'}
+        if groups:
+            target_params['groups'] = [{'name': g} for g in groups]
         response = requests.post(url + '/api/targets/', headers=headers, json=target_params)
         response.raise_for_status()
         target_id = response.json()['id']
         note += 'SNEx target id = ' + str(target_id) + '\n'
 
-        params = {'target': target_id, 'data_product_type': 'spectroscopy',
-                  'groups': json.dumps([{'name': g} for g in groups])}
+        params = {'target': target_id, 'data_product_type': 'spectroscopy'}
+        if groups:
+            params['groups'] = json.dumps([{'name': g} for g in groups])
         if dictionary.get('original'):
             params['product_id'] = re.sub(r'\.fits$', '', dictionary['original'])
         elif adding:
