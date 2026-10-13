@@ -398,14 +398,15 @@ def post_to_snex(filepath, dictionary, adding=False, propid=None):
         return 'ERROR: SNEX_URL and SNEX_API_TOKEN must be set, not posted to SNEx\n'
     headers = {'Accept': 'application/json', 'Authorization': 'Token ' + token}
     try:
-        groupidcode = int(dictionary.get('groupidcode') or 1703768065789)
+        raw = lsc.mysqldef.query(['select groupidcode from speclcoraw where filename="' + str(dictionary['original']) + '"'], conn) if dictionary.get('original') else ()
+        groupidcode = int((raw[0]['groupidcode'] if raw else None) or dictionary.get('groupidcode') or 1703768065789)
         if propid == 'FLOYDS standards' or lsc.mysqldef.query([
                 'select targets.id from targets join classifications on classifications.id=targets.classificationid '
                 'where targets.id=' + str(int(dictionary['targetid'])) + ' and classifications.name="Standard"'], conn):
             return 'standard star, not posted to SNEx\n'
 
         groups = [g['name'] for g in lsc.mysqldef.query(['select name, idcode from `groups`'], conn)
-                  if g['idcode'] and int(g['idcode']) & groupidcode]
+                  if g['idcode'] and int(g['idcode']) & groupidcode == int(g['idcode'])]
         target_params = {'name': dictionary['objname'], 'type': 'SIDEREAL', 'permissions': 'PRIVATE',
                          'ra': float(dictionary['ra0']), 'dec': float(dictionary['dec0'])}
         if groups:
