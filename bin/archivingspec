@@ -409,9 +409,7 @@ def groups_for(groupidcode):
             if g['idcode'] and int(g['idcode']) & groupidcode == int(g['idcode'])]
 
 def post_with_groups(groups, post):
-    default_groups = groups_for(None)
-    if not default_groups:
-        raise RuntimeError('none of the default groups are in the groups table, not posting without groups')
+    default_groups = groups_for(None) or None
     response = post(groups or default_groups)
     if response.status_code == 400 and 'does not exist' in response.text:
         print response.text[:300] + '; using the default groups'
@@ -447,7 +445,8 @@ def post_to_snex(filepath, dictionary, adding=False, propid=None):
                          'comment': 'Target created by the pipeline'}
 
         def post_target(groups):
-            return requests.post(url + '/api/targets/', headers=headers, json=dict(target_params, groups=groups))
+            return requests.post(url + '/api/targets/', headers=headers,
+                                 json=target_params if groups is None else dict(target_params, groups=groups))
         target_id = post_with_groups(target_groups, post_target)['id']
         note += 'SNEx target id = ' + str(target_id) + '\n'
 
@@ -461,11 +460,14 @@ def post_to_snex(filepath, dictionary, adding=False, propid=None):
 
         def post_spectrum(groups):
             with open(filepath, 'rb') as f:
-                return requests.post(url + '/api/dataproducts/', headers=headers, data=dict(params, groups=json.dumps(groups)),
+                return requests.post(url + '/api/dataproducts/', headers=headers, data=params if groups is None else dict(params, groups=json.dumps(groups)),
                                      files={'file': (os.path.basename(filepath), f, 'image/fits')})
         dp = post_with_groups(spec_groups, post_spectrum)
-        note += 'SNEx data product = ' + str(dp['id']) + '\n'
-        note += 'SNEx groups = ' + ', '.join(dp['groups']) + '\n'
+        if dp.get('unchanged'):
+            note += 'SNEx data product = ' + str(dp['id']) + ' (this version was already posted)\n'
+        else:
+            note += 'SNEx data product = ' + str(dp['id']) + ' (version ' + str(dp['versions']) + ')\n'
+            note += 'SNEx groups = ' + ', '.join(dp['groups']) + '\n'
     except Exception as e:
         detail = getattr(getattr(e, 'response', None), 'text', '')
         note += 'WARNING: SNEx upload failed: ' + str(e) + ' ' + detail[:300] + '\n'
