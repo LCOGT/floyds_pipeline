@@ -31,7 +31,7 @@ setup(
     version='2.6.0',
     author='S. Valenti',
     author_email='svalenti@lcogt.net',
-    scripts=['bin/floydsspec','bin/floydsfixheaders','bin/floydsauto'],
+    scripts=['bin/floydsspec','bin/floydsfixheaders','bin/floydsauto','bin/archivingspec'],
     url='lcogt.net',
     license='LICENSE.txt', 
     description='floyds is a package to reduce floyds spectra',
