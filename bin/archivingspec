@@ -229,7 +229,7 @@ def targimg(img,verbose=False):
        _targetid=bb[0]['id']
     return _targetid
 
-def uploadspectrum(img, _output, _force, reducer=None):
+def uploadspectrum(img, _output, _force, reducer=None, post='add'):
     note = '\ninput = '+img+'\n'
     hdulist = fits.open(img, mode='update')
     hdr = hdulist[0].header
@@ -403,7 +403,10 @@ def uploadspectrum(img, _output, _force, reducer=None):
             query('delete from spec where filename=%s', [filename])
         else: print 'adding to database'
         insert_values('spec',newdict)
-    note += post_to_snex(directory + _output, dictionary, adding, hdr.get('PROPID'))
+    if post == 'nosnex':
+        note += 'not posted to SNEx (--post nosnex)\n'
+    else:
+        note += post_to_snex(directory + _output, dictionary, adding, hdr.get('PROPID'), post)
     return note
 
 DEFAULT_GROUPIDCODE = 1703768065789
@@ -436,7 +439,7 @@ def post_public(post):
     response.raise_for_status()
     return response.json()
 
-def post_to_snex(filepath, dictionary, adding=False, propid=None):
+def post_to_snex(filepath, dictionary, adding=False, propid=None, post='add'):
     note = ''
     url = os.environ.get('SNEX_URL', 'https://supernova.exchange').rstrip('/')
     token = os.environ.get('SNEX_API_TOKEN', '')
@@ -469,6 +472,8 @@ def post_to_snex(filepath, dictionary, adding=False, propid=None):
         note += 'SNEx target id = ' + str(target_id) + '\n'
 
         params = {'target': target_id, 'data_product_type': 'spectroscopy'}
+        if post == 'replace':
+            params['replace'] = 'true'
         if dictionary.get('original'):
             params['product_id'] = re.sub(r'\.fits$', '', dictionary['original'])
         elif adding:
@@ -497,11 +502,14 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output", default='', help='output filename')
     parser.add_argument("-f", "--force", action="store_true", help="overwrite existing file & db entry")
     parser.add_argument("-r", "--reducer", help="name of reducer")
+    parser.add_argument("--post", choices=['add', 'replace', 'nosnex'], default='add',
+                        help='add: post to SNEx as a new version (default); replace: replace the versions already in SNEx; '
+                             'nosnex: archive without posting to SNEx')
     args = parser.parse_args()
 
     fullname = get_fullname()
 
     for img in args.filenames:
-        note = uploadspectrum(img, args.output, args.force, args.reducer)
+        note = uploadspectrum(img, args.output, args.force, args.reducer, args.post)
         print note
 ###################
