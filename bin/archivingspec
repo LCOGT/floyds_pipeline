@@ -15,6 +15,7 @@ from astropy.io import fits
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from argparse import ArgumentParser
+import getpass
 import json
 import requests
 try:
@@ -25,7 +26,7 @@ except ImportError:
     import pymysql.cursors
 
 workdirectory = os.path.join(os.getenv('LCOSNDIR', '/supernova/'), '')
-conn = msql.connect(host=os.getenv('LCOSNDBHOST', 'host.docker.internal'), user=os.getenv('LCOSNDBUSER', 'supernova'),
+conn = msql.connect(host=os.getenv('LCOSNDBHOST', 'supernova.sci.lco.gtn'), user=os.getenv('LCOSNDBUSER', 'supernova'),
                     passwd=os.getenv('LCOSNDBPASS', 'supernova'), db=os.getenv('LCOSNDBNAME', 'supernova'))
 
 #################################################################################
@@ -245,6 +246,10 @@ def uploadspectrum(img, _output, _force, reducer=None):
                 elif choice == '2':
                     reducer = hdr['REDUCER']
                     break
+    elif reducer is None and fullname is not None:
+        reducer = raw_input('Who reduced this spectrum? [{}] '.format(fullname))
+        if not reducer:
+            reducer = fullname
     elif reducer is None:
         names = query('select distinct reducer from spec')
         for name in names:
@@ -403,6 +408,15 @@ def uploadspectrum(img, _output, _force, reducer=None):
 
 DEFAULT_GROUPIDCODE = 1703768065789
 
+def get_fullname():
+    try:
+        rows = query('select firstname, lastname from users where name=%s', [getpass.getuser()])
+    except Exception:
+        return None
+    if rows and rows[0]['firstname']:
+        return ' '.join(n for n in (rows[0]['firstname'], rows[0]['lastname']) if n)
+    return None
+
 def groups_for(groupidcode):
     groupidcode = int(groupidcode or DEFAULT_GROUPIDCODE)
     return [{'name': g['name']} for g in query('select name, idcode from `groups`')
@@ -482,6 +496,8 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--force", action="store_true", help="overwrite existing file & db entry")
     parser.add_argument("-r", "--reducer", help="name of reducer")
     args = parser.parse_args()
+
+    fullname = get_fullname()
 
     for img in args.filenames:
         note = uploadspectrum(img, args.output, args.force, args.reducer)
