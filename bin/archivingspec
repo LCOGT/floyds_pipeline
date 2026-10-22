@@ -28,6 +28,7 @@ except ImportError:
 workdirectory = os.path.join(os.getenv('LCOSNDIR', '/supernova/'), '')
 conn = msql.connect(host=os.getenv('LCOSNDBHOST', 'supernova.sci.lco.gtn'), user=os.getenv('LCOSNDBUSER', 'supernova'),
                     passwd=os.getenv('LCOSNDBPASS', 'supernova'), db=os.getenv('LCOSNDBNAME', 'supernova'))
+DEFAULT_GROUPIDCODE = 1703768065789
 
 #################################################################################
 
@@ -408,8 +409,6 @@ def uploadspectrum(img, _output, _force, reducer=None, post='add'):
     else:
         note += post_to_snex(directory + _output, dictionary, adding, hdr.get('PROPID'), post)
     return note
-
-DEFAULT_GROUPIDCODE = 1703768065789
 
 def groups_for(groupidcode):
     groupidcode = int(groupidcode or DEFAULT_GROUPIDCODE)
