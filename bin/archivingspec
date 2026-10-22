@@ -411,15 +411,6 @@ def uploadspectrum(img, _output, _force, reducer=None, post='add'):
 
 DEFAULT_GROUPIDCODE = 1703768065789
 
-def get_fullname():
-    try:
-        rows = query('select firstname, lastname from users where name=%s', [getpass.getuser()])
-    except Exception:
-        return None
-    if rows and rows[0]['firstname']:
-        return ' '.join(n for n in (rows[0]['firstname'], rows[0]['lastname']) if n)
-    return None
-
 def groups_for(groupidcode):
     groupidcode = int(groupidcode or DEFAULT_GROUPIDCODE)
     return [{'name': g['name']} for g in query('select name, idcode from `groups`')
@@ -507,7 +498,11 @@ if __name__ == "__main__":
                              'nosnex: archive without posting to SNEx')
     args = parser.parse_args()
 
-    fullname = get_fullname()
+    try:
+        rows = query('select firstname, lastname from users where name=%s', [getpass.getuser()])
+    except Exception:
+        rows = []
+    fullname = ' '.join(n for n in (rows[0]['firstname'], rows[0]['lastname']) if n) if rows and rows[0]['firstname'] else None
 
     for img in args.filenames:
         note = uploadspectrum(img, args.output, args.force, args.reducer, args.post)
