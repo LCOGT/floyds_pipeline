@@ -440,7 +440,7 @@ def post_public(post):
 
 def post_to_snex(filepath, dictionary, adding=False, propid=None):
     note = ''
-    url = os.environ.get('SNEX_URL', '').rstrip('/')
+    url = os.environ.get('SNEX_URL', 'https://supernova.exchange').rstrip('/')
     token = os.environ.get('SNEX_API_TOKEN', '')
     if not url or not token:
         return 'ERROR: SNEX_URL and SNEX_API_TOKEN must be set, not posted to SNEx\n'
