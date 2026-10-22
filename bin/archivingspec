@@ -28,6 +28,7 @@ except ImportError:
 workdirectory = os.path.join(os.getenv('LCOSNDIR', '/supernova/'), '')
 conn = msql.connect(host=os.getenv('LCOSNDBHOST', 'supernova.sci.lco.gtn'), user=os.getenv('LCOSNDBUSER', 'supernova'),
                     passwd=os.getenv('LCOSNDBPASS', 'supernova'), db=os.getenv('LCOSNDBNAME', 'supernova'))
+DEFAULT_GROUPIDCODE = 1703768065789
 
 #################################################################################
 
@@ -229,7 +230,7 @@ def targimg(img,verbose=False):
        _targetid=bb[0]['id']
     return _targetid
 
-def uploadspectrum(img, _output, _force, reducer=None):
+def uploadspectrum(img, _output, _force, reducer=None, post='add'):
     note = '\ninput = '+img+'\n'
     hdulist = fits.open(img, mode='update')
     hdr = hdulist[0].header
@@ -403,19 +404,11 @@ def uploadspectrum(img, _output, _force, reducer=None):
             query('delete from spec where filename=%s', [filename])
         else: print 'adding to database'
         insert_values('spec',newdict)
-    note += post_to_snex(directory + _output, dictionary, adding, hdr.get('PROPID'))
+    if post == 'nosnex':
+        note += 'not posted to SNEx (--post nosnex)\n'
+    else:
+        note += post_to_snex(directory + _output, dictionary, adding, hdr.get('PROPID'), post)
     return note
-
-DEFAULT_GROUPIDCODE = 1703768065789
-
-def get_fullname():
-    try:
-        rows = query('select firstname, lastname from users where name=%s', [getpass.getuser()])
-    except Exception:
-        return None
-    if rows and rows[0]['firstname']:
-        return ' '.join(n for n in (rows[0]['firstname'], rows[0]['lastname']) if n)
-    return None
 
 def groups_for(groupidcode):
     groupidcode = int(groupidcode or DEFAULT_GROUPIDCODE)
@@ -423,9 +416,7 @@ def groups_for(groupidcode):
             if g['idcode'] and int(g['idcode']) & groupidcode == int(g['idcode'])]
 
 def post_with_groups(groups, post):
-    default_groups = groups_for(None)
-    if not default_groups:
-        raise RuntimeError('none of the default groups are in the groups table, not posting without groups')
+    default_groups = groups_for(None) or None
     response = post(groups or default_groups)
     if response.status_code == 400 and 'does not exist' in response.text:
         print response.text[:300] + '; using the default groups'
@@ -438,7 +429,7 @@ def post_public(post):
     response.raise_for_status()
     return response.json()
 
-def post_to_snex(filepath, dictionary, adding=False, propid=None):
+def post_to_snex(filepath, dictionary, adding=False, propid=None, post='add'):
     note = ''
     url = os.environ.get('SNEX_URL', 'https://supernova.exchange').rstrip('/')
     token = os.environ.get('SNEX_API_TOKEN', '')
@@ -465,11 +456,14 @@ def post_to_snex(filepath, dictionary, adding=False, propid=None):
                          'comment': 'Target created by the pipeline'}
 
         def post_target(groups):
-            return requests.post(url + '/api/targets/', headers=headers, json=dict(target_params, groups=groups))
+            return requests.post(url + '/api/targets/', headers=headers,
+                                 json=target_params if groups is None else dict(target_params, groups=groups))
         target_id = (post_public(post_target) if standard else post_with_groups(target_groups, post_target))['id']
         note += 'SNEx target id = ' + str(target_id) + '\n'
 
         params = {'target': target_id, 'data_product_type': 'spectroscopy'}
+        if post == 'replace':
+            params['replace'] = 'true'
         if dictionary.get('original'):
             params['product_id'] = re.sub(r'\.fits$', '', dictionary['original'])
         elif adding:
@@ -479,11 +473,14 @@ def post_to_snex(filepath, dictionary, adding=False, propid=None):
 
         def post_spectrum(groups):
             with open(filepath, 'rb') as f:
-                return requests.post(url + '/api/dataproducts/', headers=headers, data=dict(params, groups=json.dumps(groups)),
+                return requests.post(url + '/api/dataproducts/', headers=headers, data=params if groups is None else dict(params, groups=json.dumps(groups)),
                                      files={'file': (os.path.basename(filepath), f, 'image/fits')})
         dp = post_public(post_spectrum) if standard else post_with_groups(spec_groups, post_spectrum)
-        note += 'SNEx data product = ' + str(dp['id']) + '\n'
-        note += 'SNEx groups = ' + ', '.join(dp['groups']) + '\n'
+        if dp.get('unchanged'):
+            note += 'SNEx data product = ' + str(dp['id']) + ' (this version was already posted)\n'
+        else:
+            note += 'SNEx data product = ' + str(dp['id']) + ' (version ' + str(dp['versions']) + ')\n'
+            note += 'SNEx groups = ' + ', '.join(dp['groups']) + '\n'
     except Exception as e:
         detail = getattr(getattr(e, 'response', None), 'text', '')
         note += 'WARNING: SNEx upload failed: ' + str(e) + ' ' + detail[:300] + '\n'
@@ -495,11 +492,18 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output", default='', help='output filename')
     parser.add_argument("-f", "--force", action="store_true", help="overwrite existing file & db entry")
     parser.add_argument("-r", "--reducer", help="name of reducer")
+    parser.add_argument("--post", choices=['add', 'replace', 'nosnex'], default='add',
+                        help='add: post to SNEx as a new version (default); replace: replace the versions already in SNEx; '
+                             'nosnex: archive without posting to SNEx')
     args = parser.parse_args()
 
-    fullname = get_fullname()
+    try:
+        rows = query('select firstname, lastname from users where name=%s', [getpass.getuser()])
+    except Exception:
+        rows = []
+    fullname = ' '.join(n for n in (rows[0]['firstname'], rows[0]['lastname']) if n) if rows and rows[0]['firstname'] else None
 
     for img in args.filenames:
-        note = uploadspectrum(img, args.output, args.force, args.reducer)
+        note = uploadspectrum(img, args.output, args.force, args.reducer, args.post)
         print note
 ###################
